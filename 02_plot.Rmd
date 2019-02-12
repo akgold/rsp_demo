@@ -1,0 +1,71 @@
+---
+title: "Plotting"
+output: html_document
+---
+
+
+```{r setup}
+library(r2d3)
+library(DBI)
+
+con <- dbConnect(odbc::odbc(), "Postgres (local)")
+```
+
+Get whether temperature forecasted to go up or down relative to prior hour.
+```{sql, connection = con, output.var = "df"}
+SELECT 
+  change, 
+  COUNT(change) * 1.0 / (SELECT COUNT(*) FROM forecast) AS pct
+FROM (
+    SELECT 
+      CASE WHEN d.diff < -1 THEN 'Temp Down'
+        WHEN d.diff  > 1 THEN 'Temp Up'
+        ELSE 'No Change'
+      END AS change
+    FROM
+      (SELECT 
+        temp - lag(temp) OVER (PARTITION BY curr_time) AS diff
+        
+       FROM forecast) as d) 
+    AS a 
+GROUP BY change;
+```
+
+```{r}
+df
+```
+
+
+# Plot
+```{d3 data = df}
+var barWidth = Math.floor(width / data.length);
+var x = d3.scaleLinear().range([0, width]);
+var y = d3.scaleLinear().range([height, 0]);
+
+svg.selectAll('rect')
+  .data(data)
+  .enter().append('rect')
+    .attr('y', function(d) { return height - d.pct * height; } )
+    .attr('height', function(d){ return d.pct * height; })
+    .attr('width', barWidth)
+    .attr('x', function(d, i) { return i * barWidth; })
+    .attr('fill', 'cornflowerblue');
+    
+svg.append("text")
+        .attr("x", (width / 2))             
+        .attr("y", 50)
+        .attr("text-anchor", "middle")  
+        .style("font-size", "34px")
+        .style("font-family", "Avenir Next")
+        .style("font-face", "bold")
+        .text("Temp Change From Previous Hour");
+
+svg.selectAll(".barText")
+      .data(data)                                 
+      .enter().append("text")
+      .attr("class", "barText")
+      .attr('x', function(d, i) { return i * barWidth + barWidth / 3; })
+      .attr('y', function(d) { return height - d.pct * height - 5; } )
+      .text(function(d) { return d.change; })
+      .style("font-family", "Avenir Next");
+```

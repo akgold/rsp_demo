@@ -1,0 +1,72 @@
+---
+title: "Weather Data Ingestion"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+---
+
+```{r, include = FALSE}
+library(tidyverse)
+library(lubridate)
+library(DBI)
+```
+
+Reticulate load
+```{r}
+library(reticulate)
+
+use_python("/usr/bin/python3.5")
+owm_key <- Sys.getenv("owm_key")
+```
+
+# Ingest Weather Data using Python Package
+```{python}
+import pyowm, pandas as pd
+owm = pyowm.OWM(r.owm_key)
+dc = "Washington, D.C."
+
+# Current Weather
+w = owm.weather_at_place(dc).get_weather()
+print(w.get_temperature())
+
+# 3 hr forecast
+f = owm.three_hours_forecast(dc).get_forecast().get_weathers()
+# Convert to DataFrame
+fore = {
+"time" : [w.get_reference_time('iso') for w in f], 
+"status" : [w.get_detailed_status() for w in f], 
+"temp" : [w.get_temperature()['temp'] for w in f]
+}
+fore = pd.DataFrame(fore)
+```
+
+```{r}
+py$fore
+```
+
+# Clean Data
+
+Source temperature converters
+```{r}
+Rcpp::sourceCpp(here::here("transforms.cpp"))
+```
+
+```{r}
+fore <- py$fore %>%
+  transmute(
+    pred_time = ymd_hms(time),
+    curr_time = Sys.time(), 
+    # simplify list column
+    temp = temp %>% toF(), 
+    status)
+
+fore
+```
+
+# Write to database
+```{r}
+# connect using connections pane
+dbWriteTable(con, "forecast", fore, append = TRUE)
+```
+
